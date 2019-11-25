@@ -1,0 +1,92 @@
+---
+title: Per-dataset sanity checks on a data directory
+author: 
+- name: Aaron Lun
+  affiliation: Genentech gRED B&CB 
+  email: luna@gene.com
+date: "Revised: August 15, 2019"
+output:
+  BiocStyle::html_document
+---
+
+# Overview
+
+This document aims to check the sanity of various aspects of single-cell RNA sequencing data provided by Analytical Biosciences.
+Here we focus on a single directory.
+
+```{r}
+dir <- INSERT_DIR_HERE
+```
+
+# Loading in the expression data
+
+We read in the data for each cell and store it in a `SingleCellExperiment` object.
+
+```{r}
+library(abscd)
+sce <- createSCE(dir)
+sce
+```
+
+We examine the most highly expressed genes.
+
+```{r}
+library(Matrix)
+ave <- Matrix::rowMeans(assay(sce))
+head(sort(ave, decreasing=TRUE), 50)
+```
+
+We also compute various quality-control metrics.
+
+```{r}
+hist(Matrix::colSums(assay(sce)), xlab='Sum per cell')
+hist(Matrix::colSums(assay(sce) > 0), xlab='Detected per cell')
+```
+
+# Inspecting the metadata
+
+We preview the row and column metadata fields.
+
+```{r}
+rowData(sce)
+colData(sce)
+```
+
+We examine all of the available cell types.
+
+```{r}
+tab <- table(sce$clusterName)
+data.frame(Labels=names(tab), Frequency=as.integer(tab))
+```
+We also preview the general metadata field.
+
+```{r}
+lapply(metadata(sce), substring, first=1, last=80)
+```
+
+We collate the ontologies and compare them to the cluster names.
+
+```{r}
+metadata(sce)$ontology[,c("clusterName", "cellOntologyName")]
+```
+
+# Loading the marker list
+
+We load in the marker sets.
+
+```{r}
+markers <- loadMarkers(dir)
+names(markers)
+```
+
+We preview each of the marker lists.
+
+```{r}
+as.list(markers)
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,132 @@
+```{r}
+library(Matrix)
+library(readr)
+
+transform = function(data_name=NULL, part=NULL){
+    if(!data_name %in% list.files(output_path)){
+      dir.create(paste(output_path, data_name, sep=''))
+    }
+    if(!part %in% list.files(paste(output_path,data_name,sep=''))){
+      dir.create(paste(output_path, data_name, '/', part, sep=''))
+    }  
+    in_path_raw = paste(input_path, data_name, '/', part,
+                    '/processed_data/expressionMatrix_rawCounts.tsv', sep='')
+    out_path_raw = paste(output_path, data_name, '/', part,
+                    '/expressionMatrix_rawCounts.rds', sep='')
+    dat_raw = read.table(in_path_raw,sep='\t',
+                          check.names=FALSE,header=TRUE)
+    rnames_raw <- dat_raw$cellID
+    dat_raw <- sapply(as.data.frame(dat_raw[,-1]),as.numeric)
+    if(length(rnames_raw) != 0){
+      rownames(dat_raw) <- rnames_raw
+      cnames_raw = colnames(dat_raw)
+      raw <- as(t(dat_raw),"sparseMatrix")
+      number = dim(raw)[2]
+      saveRDS(raw, file = out_path_raw)
+      }else{
+        print(paste(data_name,part,'no raw data!',sep=':'))
+      }
+    
+    
+    in_path_norm = paste(input_path, data_name, '/', part,
+                    '/processed_data/expressionMatrix_normalized.tsv', sep='')
+    out_path_norm = paste(output_path, data_name, '/', part,
+                    '/expressionMatrix_normalized.rds', sep='')
+    dat_norm = read.table(in_path_norm,sep='\t',
+                          check.names=FALSE,header=TRUE)
+    rnames_norm <- dat_norm$cellID
+    dat_norm <- sapply(as.data.frame(dat_norm[,-c(1:2)]),as.numeric)
+    if(length(rnames_norm) != 0){
+      if(length(rnames_raw) != 0){
+        row = rnames_raw %in% rnames_norm
+        cnames_norm = colnames(dat_norm)
+        column = cnames_raw %in% cnames_norm
+        dat = dat_raw
+        dat[row, column] = dat_norm[, is.element(cnames_norm, cnames_raw)]
+        dat[!row,] = 0
+        dat[,!column] = 0
+        rownames(dat) <- rnames_raw
+        colnames(dat) <- cnames_raw
+        dat_norm <- as(t(dat),"sparseMatrix")
+        saveRDS(dat_norm, file = out_path_norm)
+      }
+      else{
+        rownames(dat_norm) <- rnames_norm
+        dat_norm <- as(t(dat_norm),"sparseMatrix")
+        number = dim(dat_norm)[2]
+        saveRDS(dat_norm, file = out_path_norm)
+      }}
+    else{ 
+        print(paste(data_name,part,'no normalized data!',sep=':'))
+        }
+    returnMessage = 'successfully generated expression file'
+    return(c(returnMessage,number))
+}
+```
+
+
+```{r}
+input_path = '/home/biodb/data/dataset_collection/datasets/3_standard_dataset/'
+output_path = '/home/biodb/data/dataset_collection/datasets/genentech_format_copy/'
+
+transform(data_name = 'No_43', part = 'part_1')
+```
+
+```{r}
+input_path = '/home/biodb/data/dataset_collection/datasets/3_standard_dataset/'
+output_path = '/home/biodb/data/dataset_collection/datasets/genentech_format_copy/'
+
+data_num = c(51)
+for(i in data_num){
+  data_name = paste('No_',i,sep='')
+  dirs = paste(input_path,data_name,sep='')
+  part = list.files(dirs)
+  for(j in part){
+    if(grepl('part',j)){
+      transform(data_name, j)}
+  }
+}
+```
+
+
+```{r}
+files = list.files("/home/biodb/data/dataset_collection/datasets/3_standard_dataset/Tabula_Muris/",pattern ="facs*|droplet*")
+for(i in 31:32){
+  path = paste(output_path,'No_17',"/part_",i,sep="")
+  dir.create(path)
+  dataname = paste('Tabula_Muris/',files[i],sep="")
+  transform(data_name = dataname, out_name = 'No_17', part = paste('part_',i,sep=""))}
+  
+  
+matrix1 = readMM('/home/biodb/data/dataset_collection/datasets/3_standard_dataset/Tabula_Muris/m_droplet_Lung/processed_data/expressionMatrix_rawCounts.mtx')
+saveRDS(matrix1, '/home/biodb/data/dataset_collection/datasets/4_genentech_format/datasets/No_17/part_31/expressionMatrix_rawCounts.rds')
+
+matrix2 = readMM('/home/biodb/data/dataset_collection/datasets/3_standard_dataset/Tabula_Muris/m_droplet_Trachea/processed_data/expressionMatrix_rawCounts.mtx')
+saveRDS(matrix2, '/home/biodb/data/dataset_collection/datasets/4_genentech_format/datasets/No_17/part_32/expressionMatrix_rawCounts.rds')
+
+```
+
+```{r}
+dirs = paste('~/data/dataset_collection/datasets/genentech_format_copy/No_',
+             c(35:42),sep='')
+for(i in dirs){
+  n = length(list.files(i))
+  for(j in 1:n){
+    path1 = paste(i, '/part_', as.character(j), 
+                 '/expressionMatrix_rawCounts.rds',sep='')
+    path2 = paste(i, '/part_', as.character(j), 
+                 '/expressionMatrix_normalized.rds',sep='')
+    raw = readRDS(path1)
+    saveRDS(t(raw), file = path1)
+    norm = readRDS(path2)
+    saveRDS(t(norm), file = path2)
+  }
+}
+
+dirs = paste('~/data/dataset_collection/datasets/genentech_format_copy/No_',
+             c(13:19,25:35),sep='')
+
+```
+
+
+

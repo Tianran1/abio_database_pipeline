@@ -1,0 +1,16 @@
+Package: abscd
+Version: 0.0.2
+Title: Processing of Analytical Biosciences Single-Cell Data
+Authors@R: person("Aaron", "Lun", role=c("aut", "cre"), email="luna@gene.com")
+Description: Tests datasets provided by Analytical Biosciences for
+    correctness and proper formatting, in preparation for ingestion
+    into internal Genentech systems.
+Depends: SingleCellExperiment
+Imports: 
+    utils, 
+    Matrix, 
+    S4Vectors, 
+    SummarizedExperiment, 
+    rmarkdown
+RoxygenNote: 6.1.1
+NeedsCompilation: no
