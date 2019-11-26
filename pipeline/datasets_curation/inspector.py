@@ -85,7 +85,9 @@ class Inspector(IOMethod, VariableControl):
             for i in self.ignored_files:
                 if i in mismatched_file:
                      mismatched_file.remove(i)
-            if dataset_file_result != set():
+            if mismatched_file == set():
+                pass
+            else:
                 dataset_file_result = 'having mismatched file %s' %mismatched_file
                 directory_hierarchy_results['dataset_file_result'] = dataset_file_result
         
@@ -100,8 +102,11 @@ class Inspector(IOMethod, VariableControl):
             for i in self.ignored_files + self.optional_processed_data_files:
                 if i in mismatched_file:
                     mismatched_file.remove(i)
-            processed_data_files_result = 'having mismatched file %s' %mismatched_file
-            directory_hierarchy_results['processed_data_files_result'] = processed_data_files_result
+            if mismatched_file == set():
+                pass
+            else:
+                processed_data_files_result = 'having mismatched file %s' %mismatched_file
+                directory_hierarchy_results['processed_data_files_result'] = processed_data_files_result
 
         # inspect optional processed_data names
         df_cell = self.read_template_tsv('cellAnnotation.tsv')

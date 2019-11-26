@@ -23,6 +23,7 @@ class IOMethod(object):
     def __init__(self, starting_dir: str = ""):
         self.down_dir = starting_dir + '/downloaded_data'
         self.process_dir = starting_dir + '/processed_data'
+        self.code_dir = starting_dir + '/code'
         self.cellanno_dir = self.process_dir + '/cellAnnotation.tsv'
         self.geneanno_dir = self.process_dir + '/geneAnnotation.tsv'
         self.tpm_dir = self.process_dir + '/expressionMatrix_TPM.tsv'
@@ -167,7 +168,9 @@ class BaseDatasetBuilder(IOMethod):
                 os.makedirs(self.down_dir)
             if not os.path.exists(self.process_dir):
                 os.makedirs(self.process_dir)
-            return_message = 'successfully generated dir: [1] downloaded_data, [2] processed_data'
+            if not os.path.exists(self.code_dir):
+                os.makedirs(self.code_dir)
+            return_message = 'successfully generated dir: [1] downloaded_data, [2] processed_data, [3] code'
             return return_message
 
         def _generate_cell_annotation():
