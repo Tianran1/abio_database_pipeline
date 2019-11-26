@@ -49,7 +49,14 @@ class Inspector(IOMethod, VariableControl):
         self.starting_dir = starting_dir
         self.inspection_results = dict()
         self.print_line = dict()
-        
+
+    def inspect_expType(self):
+        if 'expressionMatrix_TPM.mtx' in os.listdir(self.process_dir):
+            self.exp_type = 'mtx'
+        else:
+            self.exp_type = 'tsv'
+        return self.exp_type
+
     def inspect(self):
         
         self.inspect_directory_hierarchy()
@@ -62,13 +69,6 @@ class Inspector(IOMethod, VariableControl):
         
         return self.inspection_results
     
-    def _inspect(self):
-        
-        self.inspect_cell_annotation()
-        self.inspect_expression_matrix()
-        
-        return self.inspection_results
-    
     def inspect_directory_hierarchy(self):
         
         directory_hierarchy_results = dict() 
@@ -78,31 +78,38 @@ class Inspector(IOMethod, VariableControl):
         #============================== 
         directory_hierarchy_results['present directory'] = os.getcwd()
         current_dataset_files = os.listdir(self.starting_dir)
-        mismatched_file = self._compare_name_sequences(current_dataset_files, self.standard_dataset_files + self.ignored_files, relax = True)
+        mismatched_file = self._compare_name_sequences(current_dataset_files, self.standard_dataset_files)
         if mismatched_file == None:
             pass
-        else:  
-            dataset_file_result = 'having mismatched file %s' %mismatched_file
-            directory_hierarchy_results['dataset_file_result'] = dataset_file_result
+        else:
+            for i in self.ignored_files:
+                if i in mismatched_file:
+                     mismatched_file.remove(i)
+            if dataset_file_result != set():
+                dataset_file_result = 'having mismatched file %s' %mismatched_file
+                directory_hierarchy_results['dataset_file_result'] = dataset_file_result
         
         #============================== 
         # inspect processed_data names
         #==============================
         processed_data_files = os.listdir(self.process_dir)
-        mismatched_file = self._compare_name_sequences(processed_data_files, self.standard_processed_data_files + self.ignored_files + self.optional_processed_data_files, relax = True)
+        mismatched_file = self._compare_name_sequences(processed_data_files, self.standard_processed_data_files)
         if mismatched_file == None:
             pass
-        else:  
+        else:
+            for i in self.ignored_files + self.optional_processed_data_files:
+                if i in mismatched_file:
+                    mismatched_file.remove(i)
             processed_data_files_result = 'having mismatched file %s' %mismatched_file
             directory_hierarchy_results['processed_data_files_result'] = processed_data_files_result
 
         # inspect optional processed_data names
         df_cell = self.read_template_tsv('cellAnnotation.tsv')
         if set(df_cell['clusterName']) != {'notAvailable'}:
-            if set(self.optional_processed_data_files) < set(self.standard_processed_data_files):
+            if set(self.optional_processed_data_files) < set(processed_data_files):
                 pass
             else:
-                directory_hierarchy_results['optional_files_result'] = 'should run auto_calculation!'
+                directory_hierarchy_results['optional_files_result'] = 'ERROR!should run auto_calculation!'
 
         self.inspection_results['directory_hierarchy_results'] = directory_hierarchy_results
         return self.inspection_results
@@ -125,6 +132,12 @@ class Inspector(IOMethod, VariableControl):
                 cell_annotation_result['conserved_keyword_result'] = 'having mismatched keyword %s' %mismatched_keywords
             cell_annotation_result['cell_metadata_result'] = cell_meta_keywords
         
+        # inpsect na values:
+        if df_cell.isna().any().any():
+            na_columns = df_gene.columns[df_gene.isna().any()]
+            na_column_result = 'ERROR!NA value in the following columns %s' % na_columns
+            cell_annotation_result['na_column_result'] = na_column_result
+
         # inspect cell ontology
         cellOntology_result = set()
         for i in df_cell['cellOntologyID']:
@@ -133,7 +146,7 @@ class Inspector(IOMethod, VariableControl):
             else:
                 cellOntology_result.add("cellOntologyID doesn't begin with 'CL:'")
         if len(set(df_cell['cellOntologyID'])) != len(set(df_cell['cellOntologyName'])):
-            cellOntology_result.add("cellOntologyID not matched with cellOntologyName")
+            cellOntology_result.add("ERROR!cellOntologyID not matched with cellOntologyName")
         if cellOntology_result == set():
             pass
         else:
@@ -144,7 +157,7 @@ class Inspector(IOMethod, VariableControl):
         if len(df_cell['clusterName'].unique()) == 1:
             cluster_result.add('Only one cluster: %s!' %df_cell['clusterName'][0])
         if len(df_cell['clusterID'].unique()) != len(df_cell['clusterName'].unique()):
-            cluster_result.add("clusterID not matched with clusterName")
+            cluster_result.add("ERROR!clusterID not matched with clusterName")
         for i in set(df_cell['clusterName']):
             if not isinstance(i, str):
                 cluster_result.add("clusterName should be str!")
@@ -158,12 +171,12 @@ class Inspector(IOMethod, VariableControl):
         sample_meta = set()
         for i in ['meta_sourceName','meta_tissue','meta_description','PCA1','PCA2']:
             if i in df_cell.columns.tolist():
-                if df_cell[i].unique() == 'notAvailable' or df_cell[i].isna().any():
+                if set(df_cell[i]) == {'notAvailable'} or df_cell[i].isna().all():
                     sample_meta.add(i)
         if sample_meta == set():
             pass
         else:
-            cell_annotation_result['meta_info'] = 'please delete %s'%sample_meta
+            cell_annotation_result['meta_info'] = 'ERROR!please delete %s'%sample_meta
             
         # inspect missing dim_red
         dim_red_names = ['tSNE1', 'tSNE2', 'UMAP1', 'UMAP2']
@@ -191,9 +204,9 @@ class Inspector(IOMethod, VariableControl):
             gene_annotation_result['conserved_keyword_result'] = conserved_keyword_result
         
         # inspect geneSymbol & ensemblID
-        if df_gene.iloc[:,:2].isna().any().any():
+        if df_gene.iloc[:,:1].isna().any().any():
             na_columns = df_gene.columns[df_gene.isna().any()]
-            na_column_result = 'NA value in the following columns %s' % na_columns
+            na_column_result = 'ERROR!NA value in the following columns %s' % na_columns
             gene_annotation_result['na_column_result'] = na_column_result
         
         null_columns = []
@@ -202,7 +215,7 @@ class Inspector(IOMethod, VariableControl):
         if set(df_gene['ensemblID']) == {'notAvailable'}:
                 null_columns.append('ensemblID')
         if null_columns != []:
-            gene_annotation_result['null_column_result'] = 'Null value in %s' %null_columns
+            gene_annotation_result['null_column_result'] = 'ERROR!Null value in %s' %null_columns
       
         self.inspection_results['gene_annotation_result'] = gene_annotation_result
         self.print_line['gene_annotation'] = df_gene.iloc[0,:].tolist()
@@ -224,12 +237,12 @@ class Inspector(IOMethod, VariableControl):
         try:
             assert column_names.split()[0] == 'cellID'
         except AssertionError:
-            raw_expression_matrix_result['cellID_keyword_error'] = 'rawCounts: wrong cellID keyword'
+            raw_expression_matrix_result['cellID_keyword_error'] = 'ERROR!rawCounts: wrong cellID keyword'
         try:
              for i in first_line.split('\t')[1:]:
                 j = int(i)
         except ValueError:
-            raw_expression_matrix_result['data_type_error'] = 'rawCounts: not integer format'
+            raw_expression_matrix_result['data_type_error'] = 'ERROR!rawCounts: not integer format'
                 
         self.inspection_results['raw_expression_matrix_result'] = raw_expression_matrix_result
 
@@ -251,16 +264,16 @@ class Inspector(IOMethod, VariableControl):
                 try:
                     assert column_names.split()[0] == 'normalizationMethod'
                 except AssertionError:
-                    normalized_expression_matrix_result['normalized_keyword_error'] = 'normalized: wrong normalization keyword' 
+                    normalized_expression_matrix_result['normalized_keyword_error'] = 'ERROR!normalized: wrong normalization keyword' 
                 try:
                     assert column_names.split()[1] == 'cellID'
                 except AssertionError:
-                    normalized_expression_matrix_result['normalized_keyword_error'] = 'normalized: wrong cellID keyword'
+                    normalized_expression_matrix_result['normalized_keyword_error'] = 'ERROR!normalized: wrong cellID keyword'
                 try:
                     for i in first_line.split('\t')[2:]:
                         type(eval(i)) == float
                 except:
-                    normalized_expression_matrix_result['data_type_error'] = 'normalized: not float format'     
+                    normalized_expression_matrix_result['data_type_error'] = 'ERROR!normalized: not float format'     
                 if first_line != '':
                     normalized_expression_matrix_result['normalizationMethod'] = first_line.split('\t')[0]
                         
@@ -286,23 +299,23 @@ class Inspector(IOMethod, VariableControl):
                 try:
                     assert column_names.split()[0] == 'normalizationMethod'
                 except AssertionError:
-                    TPM_expression_matrix_result['tpm_keyword_error'] = 'TPM: wrong normalization keyword' 
+                    TPM_expression_matrix_result['tpm_keyword_error'] = 'ERROR!TPM: wrong normalization keyword' 
                 try:
                     assert column_names.split()[1] == 'cellID'
                 except AssertionError:
-                    TPM_expression_matrix_result['tpm_keyword_error'] = 'TPM: wrong cellID keyword'    
+                    TPM_expression_matrix_result['tpm_keyword_error'] = 'ERROR!TPM: wrong cellID keyword'    
                 try:
                     for i in first_line.split('\t')[2:]:
                         j = float(i)
                 except ValueError:
-                    TPM_expression_matrix_result['data_type_error'] = 'TPM: not float format'  
+                    TPM_expression_matrix_result['data_type_error'] = 'ERROR!TPM: not float format'  
                 try:
                     if round(sum([float(x) for x in first_line.split('\t')[2:]])) == 1000000:
                         pass
                     else:
-                        TPM_expression_matrix_result['number_error'] = 'TPM: rowSums not equal to 1000000'
+                        TPM_expression_matrix_result['number_error'] = 'ERROR!TPM: rowSums not equal to 1000000'
                 except:
-                    TPM_expression_matrix_result['number_error'] = 'TPM: Wrong format!'
+                    TPM_expression_matrix_result['number_error'] = 'ERROR!TPM: Wrong format!'
                 TPM_expression_matrix_result['normalizationMethod'] = first_line.split('\t')[0]
 
         self.inspection_results['TPM_expression_matrix_result'] = TPM_expression_matrix_result
@@ -320,18 +333,18 @@ class Inspector(IOMethod, VariableControl):
         # normalized
         if os.path.getsize(self.norm_dir) > 100:
             if normalized_cell_length != cell_length:
-                dimension_result['normalized_cell_length_result'] = 'not matched with cellAnnotation'
+                dimension_result['normalized_cell_length_result'] = 'ERROR!not matched with cellAnnotation'
             if len(genes_norm) != gene_length:
-                dimension_result['normalized_gene_length_result'] = 'not matched with geneAnnotation'
+                dimension_result['normalized_gene_length_result'] = 'ERROR!not matched with geneAnnotation'
         
         # TPM
         if os.path.getsize(self.tpm_dir) > 100:
             if TPM_cell_length != cell_length:
-                dimension_result['TPM_cell_length_result'] = 'not matched with cellAnnotation'
+                dimension_result['TPM_cell_length_result'] = 'ERROR!not matched with cellAnnotation'
             if TPM_cellID != df_cell['cellID'].tolist():
-                dimension_result['TPM_cellID_result'] = 'not matched with cellAnnotation'
+                dimension_result['TPM_cellID_result'] = 'ERROR!not matched with cellAnnotation'
             if len(genes_TPM) != gene_length:
-                dimension_result['TPM_gene_length_result'] = 'not matched with geneAnnotation' 
+                dimension_result['TPM_gene_length_result'] = 'ERROR!not matched with geneAnnotation' 
         
         self.inspection_results['dimension_result'] = dimension_result
         return self.inspection_results        
@@ -364,7 +377,7 @@ class Inspector(IOMethod, VariableControl):
         try:
             for i in integer_keywords:
                 if type(metadata[i]) != int:
-                    keyword_content.append('%s should be integer not string' %i)
+                    keyword_content.append('ERROR!%s should be integer not string' %i)
                 if metadata[i] == 0:
                     keyword_content.append('no content in %s' %i)
             for i in string_keywords:
@@ -421,7 +434,7 @@ class Inspector(IOMethod, VariableControl):
             eid = marker_genes[cell_types[0]]['ensemblID']
             try:
                 if pd.unique(eid) == ['notAvailable']:
-                    unstructured_data_result['ensemblID'] = 'lack ensemblID'
+                    unstructured_data_result['ensemblID'] = 'ERROR!lack ensemblID'
             except:
                 pass
 
@@ -445,7 +458,7 @@ class Inspector(IOMethod, VariableControl):
         
         return self.inspection_results
 
-    def _compare_name_sequences(self, current_sequence, standard_sequence, relax = False):
+    def _compare_name_sequences(self, current_sequence, standard_sequence):
        
         """
         Parameters:
@@ -455,18 +468,12 @@ class Inspector(IOMethod, VariableControl):
         ----------
             mismatched_names: set()in
         """
-        if relax:
-            if set(standard_sequence) > set(current_sequence):
-                pass
-            else: 
-                mismatched_names = set(current_sequence).symmetric_difference(set(standard_sequence))
-                return mismatched_names
-        else:
-            if set(standard_sequence) == set(current_sequence):
-                pass
-            else: 
-                mismatched_names = set(current_sequence).symmetric_difference(set(standard_sequence))
-                return mismatched_names
+        
+        if set(standard_sequence) == set(current_sequence):
+            pass
+        else: 
+            mismatched_names = set(current_sequence).symmetric_difference(set(standard_sequence))
+            return mismatched_names
         
     def _print_line(self):
         

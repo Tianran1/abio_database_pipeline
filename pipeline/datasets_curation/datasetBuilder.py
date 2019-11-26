@@ -620,7 +620,7 @@ class DerivationMethod(IOMethod):
                 self.results['tSNE2'] = X_embedded[:, 1].tolist()
                 print('tSNE finished')
             else:
-                import sys; sys.path.append('/home/biodb/data/software/FIt-SNE')
+                sys.path.append(os.path.realpath(sys.modules['pipeline'].__file__).split('__')[0] + 'resources/software/FIt-SNE')
                 from fast_tsne import fast_tsne
                 X_embedded = fast_tsne(X_pca, perplexity=50, initialization=tSNE_init)
                 df_cell_anno['tSNE1'] = X_embedded[:, 0].tolist()
