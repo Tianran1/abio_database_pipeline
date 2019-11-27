@@ -306,15 +306,22 @@ class SubGSEDir(BaseGSEDir):
         if not os.path.exists(self.GSE_supplementary_file_dir):
             os.makedirs(self.GSE_supplementary_file_dir)
         for file in self.supplementary_file_dict.keys():
-            try:
-                print('\n downloading %s:' % file)
-                wget.download(url=self.supplementary_file_dict[file], out=self.GSE_supplementary_file_dir)
-            except Exception as e:
-                print('downloading error of %s,' % file, 'error: %s' % e)
+            for i in range(5):
+                try:
+                    print('\n downloading %s:' % file)
+                    print(str(i+1))
+                    wget.download(url=self.supplementary_file_dict[file], out=self.GSE_supplementary_file_dir)
+                    break
+                except Exception as e:
+                    print('downloading error of %s,' % file, 'error: %s' % e)
+                    continue
 
         ########!!!!!!
         # may need more code to ensure complete download
         ########
+        os.system('rm -rf '+self.gse_dir+'/SOFT_file')
+        father_gse_dir = os.path.dirname(self.gse_dir)
+        os.system('rm -rf '+father_gse_dir+'/SOFT_file')
 
 
 class Dataset_builder(object):
