@@ -139,7 +139,7 @@ class Inspector(IOMethod, VariableControl):
         
         # inpsect na values:
         if df_cell.isna().any().any():
-            na_columns = df_gene.columns[df_gene.isna().any()]
+            na_columns = df_cell.columns[df_cell.isna().any()]
             na_column_result = 'ERROR!NA value in the following columns %s' % na_columns
             cell_annotation_result['na_column_result'] = na_column_result
 
@@ -223,7 +223,7 @@ class Inspector(IOMethod, VariableControl):
             gene_annotation_result['null_column_result'] = 'ERROR!Null value in %s' %null_columns
       
         self.inspection_results['gene_annotation_result'] = gene_annotation_result
-        self.print_line['gene_annotation'] = df_gene.iloc[0,:].tolist()
+        self.print_line['gene_annotation'] = df_gene.iloc[0,:2].tolist()
 
         return self.inspection_results
     
@@ -399,8 +399,8 @@ class Inspector(IOMethod, VariableControl):
                 keyword_content.append('tissue:%s should be in the keywords list' %metadata['tissue'])
             if not isinstance(metadata['sequencingPlatform'],str):
                 keyword_content.append('sequencingPlatform should be str')
-        except:
-            keyword_content.append('might have mismatched keywords')
+        except Exception as e:
+            keyword_content.append(e)
 
         metadata_result['keyword_content'] = keyword_content
 
@@ -411,13 +411,17 @@ class Inspector(IOMethod, VariableControl):
         #==============================
 
         marker_genes = unstructured_data['markerGenes']
+        marker_genes_result = dict()
+
         df_cell = self.read_template_tsv('cellAnnotation.tsv')
         if marker_genes == {}:
-            unstructured_data_result['marker_gene_contents'] = 'no markers genes!'
+            marker_genes_result['marker_gene_contents'] = 'no markers genes!'
         else:
             standard_keys = []
             cell_types = [*marker_genes]
             mismatched_Names = None
+            if set(df_cell['clusterName']) != set(cell_types):
+                marker_genes_result['marker_gene_clusterName'] = 'ERROR!not matched with cellAnnotation!'
 
             for cell_type in cell_types:
                 markers = marker_genes[cell_type]
@@ -425,24 +429,27 @@ class Inspector(IOMethod, VariableControl):
                 standard_keys = ['geneSymbol', 'ensemblID', 'pValue', 'statistics', 'statisticsType']
                 mismatched_names = self._compare_name_sequences(current_keys, standard_keys)
                 for key in current_keys:
+                    empty_marker_genes_error = []
                     try:
                         if type(markers[key]) != list or len(markers[key]) < 5:
                             empty_marker_genes = True
                             empty_marker_genes_error.append('problem in %s %s, this generally occurs as it should be a list(vector in R) here but not a character'
                                                 %(cell_type, key))
-                    except Exceptions as e:
-                        empty_marker_genes.append(e)
+                    except Exception as e:
+                        empty_marker_genes_error.append(e)
+            if empty_marker_genes_error != []:
+                marker_genes_result['marker_genes_format'] = empty_marker_genes_error
 
             if mismatched_names != None:
                 marker_gene_keywords = 'having mismatched keyword %s' %mismatched_names
-                unstructured_data_result['marker_gene_keywords'] = marker_gene_keywords    
+                marker_genes_result['marker_gene_keywords'] = marker_gene_keywords    
             eid = marker_genes[cell_types[0]]['ensemblID']
             try:
                 if pd.unique(eid) == ['notAvailable']:
-                    unstructured_data_result['ensemblID'] = 'ERROR!lack ensemblID'
+                    marker_genes_result['ensemblID'] = 'ERROR!lack ensemblID'
             except:
                 pass
-
+        unstructured_data_result['marker_genes_result'] = marker_genes_result
         self.inspection_results['unstructured_data'] = unstructured_data_result
 
         return self.inspection_results
