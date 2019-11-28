@@ -575,18 +575,17 @@ class DerivationMethod(IOMethod):
             unstructured_data['markerGenes'] = markerGenes
             self.save_template_json(unstructured_data, 'unstructuredData.json')
         
-    def calculate_dim_red(self, tSNE=False, UMAP=False, exp_type='tsv'):
+    def calculate_dim_red(self, tSNE=False, UMAP=False, fast = False):
         self.results = dict()
         df_TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
         if df_TPM['cellID'].tolist() == []:
-            exp_type = 'mtx'
-        if exp_type == 'tsv':
-            TPM = df_TPM.iloc[:, 2:].to_numpy()
-            TPM = np.log(TPM + 1) 
-        else:
             TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
             TPM = TPM.tocsr()
             TPM = TPM.log1p()
+            fast = True
+        else:
+            TPM = df_TPM.iloc[:, 2:].to_numpy()
+            TPM = np.log(TPM + 1) 
          
         #genes = df_TPM.columns.to_numpy()[2:]
         df_cell_anno = self.read_template_tsv('cellAnnotation.tsv')
@@ -614,7 +613,7 @@ class DerivationMethod(IOMethod):
             print('UMAP finished')
 
         if tSNE:
-            if exp_type == 'tsv':
+            if not fast:
                 from sklearn.manifold import TSNE
                 X_embedded = TSNE(n_components=2, metric='cosine', init=tSNE_init).fit_transform(X_pca)
                 df_cell_anno['tSNE1'] = X_embedded[:, 0].tolist()

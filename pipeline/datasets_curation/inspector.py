@@ -29,7 +29,7 @@ class VariableControl():
     'figureURL', 'taxonomyID','genomeBuild','annotation','publicationDate','citation','tissue',
     'clusterAvailability','disease','methodology','nonAdult','cancer','neuroscience','developmentalBiology',
     'immunology','cellAtlas','isFigurePublic','isBadtSNE']
-    libmethod_keywords = ['10x chrominum','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
+    libmethod_keywords = ['10x chromium','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
                               'Smart-seq2','Smart-seq','CEL-seq']
     journal_keywords = ['Cancer cell','Cancer discovery','Cell','Cell stem cell',
                         'Cell system','Immmunity','Molecular cell','Nature',
@@ -391,11 +391,11 @@ class Inspector(IOMethod, VariableControl):
             for i in url_keywords:
                 if not metadata[i].startswith('http'):
                     keyword_content.append('%s keywords should startwith http' %i)
-            if not metadata['libraryPreparationMethod'] in libmethod_keywords:
+            if not metadata['libraryPreparationMethod'] in self.libmethod_keywords:
                 keyword_content.append('libraryPreparationMethod:%s should be in the keywords list' %metadata['libraryPreparationMethod'])   
-            if not metadata['journal'] in journal_keywords:
+            if not metadata['journal'] in self.journal_keywords:
                 keyword_content.append('journal:%s should be in the keywords list' %metadata['journal'])
-            if not metadata['tissue'] in tissue_keywords:
+            if not metadata['tissue'] in self.tissue_keywords:
                 keyword_content.append('tissue:%s should be in the keywords list' %metadata['tissue'])
             if not isinstance(metadata['sequencingPlatform'],str):
                 keyword_content.append('sequencingPlatform should be str')
