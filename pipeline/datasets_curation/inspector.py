@@ -39,7 +39,7 @@ class VariableControl():
                         'Nature neuroscience','Neuron','Science','Science immunology',
                         'Science translational medicine','eLife']
     tissue_keywords = ['aorta','bladder','bone marrow','brain','diaphragm','fat','heart','kidney',
-                       'large intestine','limb muscle','liver','lung,mammary gland',
+                       'large intestine','limb muscle','liver','lung','mammary', 'gland',
                        'pancreas','skin','spleen','thymus','tongue','trachea']
 
 class Inspector(IOMethod, VariableControl):
@@ -145,12 +145,16 @@ class Inspector(IOMethod, VariableControl):
 
         # inspect cell ontology
         cellOntology_result = set()
-        for i in df_cell['cellOntologyID']:
-            if i.startswith('CL:') or i == 'notAvailable':
+        ontoID = df_cell['cellOntologyID'].tolist()
+        ontoName = df_cell['cellOntologyName'].tolist()
+        ontoID = [i for i in ontoID if i != 'notAvailable']
+        ontoName = [i for i in ontoName if i != 'notAvailable']
+        for i in ontoID:
+            if i.startswith('CL:'):
                 pass
             else:
                 cellOntology_result.add("cellOntologyID doesn't begin with 'CL:'")
-        if len(set(df_cell['cellOntologyID'])) != len(set(df_cell['cellOntologyName'])):
+        if len(set(ontoID)) != len(set(ontoName)):
             cellOntology_result.add("ERROR!cellOntologyID not matched with cellOntologyName")
         if cellOntology_result == set():
             pass
@@ -245,7 +249,7 @@ class Inspector(IOMethod, VariableControl):
             raw_expression_matrix_result['cellID_keyword_error'] = 'ERROR!rawCounts: wrong cellID keyword'
         try:
              for i in first_line.split('\t')[1:]:
-                j = int(i)
+                j = int(eval(i))
         except ValueError:
             raw_expression_matrix_result['data_type_error'] = 'ERROR!rawCounts: not integer format'
                 
