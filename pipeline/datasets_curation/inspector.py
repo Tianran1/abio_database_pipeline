@@ -25,21 +25,23 @@ class VariableControl():
     standard_geneanno_variables = ['geneSymbol','ensemblID','ensemblIDVersion','geneID']
     standard_metadata_variables = ['datasetID', 'subDataset','description','title', 'accessionNumber', 
     'abstract','authors', 'journal', 'sourceID', 'numberOfCells','libraryPreparationMethod', 
-    'sequencingPlatform', 'pubmedID', 'clusteringMethod', 'biomarkerDerivationMethod', 'fastqURL', 
-    'figureURL', 'taxonomyID','genomeBuild','annotation','publicationDate','citation','tissue',
+    'sequencingPlatform', 'pubmedID', 'keywords', 'clusteringMethod', 'biomarkerDerivationMethod', 'fastqURL', 
+    'figureURL', 'taxonomyID','genomeBuild','annotation','publicationDate','citation','tissue','tissueOntology',
     'clusterAvailability','disease','methodology','nonAdult','cancer','neuroscience','developmentalBiology',
-    'immunology','cellAtlas','isFigurePublic','isBadtSNE']
+    'immunology','cellAtlas','isFigurePublic','tSNEAvailability','isBadtSNE']
     libmethod_keywords = ['10x chromium','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
-                              'Smart-seq2','Smart-seq','CEL-seq']
+                          'Smart-seq2','Smart-seq','CEL-seq','CEL-seq2','MARS-seq','msSCRB-seq','SCRB-seq']
     journal_keywords = ['Cancer cell','Cancer discovery','Cell','Cell stem cell',
-                        'Cell system','Immmunity','Molecular cell','Nature',
+                        'Cell system','Immunity','Molecular cell','Nature',
                         'Nature biomedical engineering','Nature cell biology',
                         'Nature communications','Nature genetics',
-                        'Nature medicine','Nature methods',
+                        'Nature medicine','Nature methods','Nature immunology',
                         'Nature neuroscience','Neuron','Science','Science immunology',
                         'Science translational medicine','eLife']
-    tissue_keywords = ['aorta','bladder','bone marrow','brain','diaphragm','fat','heart','kidney',
-                       'large intestine','limb muscle','liver','lung','mammary', 'gland',
+    tissue_keywords = ['adipose','aorta','bladder','blood','blood vessel','bone','bone marrow','brain',
+                       'breast','colon','cerebral cortex','diaphragm','ear','embryo','eye','hair','heart',
+                       'kidney','limb','muscle','lymphoid','prostate','neuron','small intestine',
+                       'large intestine','liver','lung','gland','urethra','testis',
                        'pancreas','skin','spleen','thymus','tongue','trachea']
 
 class Inspector(IOMethod, VariableControl):
@@ -153,7 +155,7 @@ class Inspector(IOMethod, VariableControl):
             if i.startswith('CL:'):
                 pass
             else:
-                cellOntology_result.add("cellOntologyID doesn't begin with 'CL:'")
+                cellOntology_result.add("ERROR!cellOntologyID doesn't begin with 'CL:'")
         if len(set(ontoID)) != len(set(ontoName)):
             cellOntology_result.add("ERROR!cellOntologyID not matched with cellOntologyName")
         if cellOntology_result == set():
@@ -163,9 +165,12 @@ class Inspector(IOMethod, VariableControl):
 
         # inspect cluster
         cluster_result = set()
-        if len(df_cell['clusterName'].unique()) == 1:
-            cluster_result.add('Only one cluster: %s!' %df_cell['clusterName'][0])
-        if len(df_cell['clusterID'].unique()) != len(df_cell['clusterName'].unique()):
+        name = [i for i in df_cell['clusterName'] if i != 'notAvailable']
+        ID = [i for i in df_cell['clusterID'] if i != 'notAvailable']
+        name
+        if len(set(name)) == 1:
+            cluster_result.add('Only one cluster: %s!' %name[0])
+        if len(set(ID)) != len(set(name)):
             cluster_result.add("ERROR!clusterID not matched with clusterName")
         for i in set(df_cell['clusterName']):
             if not isinstance(i, str):
@@ -350,7 +355,7 @@ class Inspector(IOMethod, VariableControl):
         if os.path.getsize(self.tpm_dir) > 100:
             if TPM_cell_length != cell_length:
                 dimension_result['TPM_cell_length_result'] = 'ERROR!not matched with cellAnnotation'
-            if TPM_cellID != df_cell['cellID'].tolist():
+            if TPM_cellID != [str(i) for i in df_cell['cellID']]:
                 dimension_result['TPM_cellID_result'] = 'ERROR!not matched with cellAnnotation'
             if len(genes_TPM) != gene_length:
                 dimension_result['TPM_gene_length_result'] = 'ERROR!not matched with geneAnnotation' 
@@ -379,8 +384,9 @@ class Inspector(IOMethod, VariableControl):
 
         #========checking standard keys for datatype & content ========
         keyword_content = []
+        list_keywords = ['tissue','keywords','tissueOntology']
         integer_keywords = ['pubmedID', 'numberOfCells', 'taxonomyID','citation']
-        string_keywords = list(set(self.standard_metadata_variables[1:]) - set(integer_keywords))
+        string_keywords = list(set(self.standard_metadata_variables[1:]) - set(integer_keywords) - set(list_keywords))
         url_keywords = ['sourceID', 'fastqURL', 'figureURL']
 
         try:
@@ -392,6 +398,11 @@ class Inspector(IOMethod, VariableControl):
             for i in string_keywords:
                 if metadata[i] == '':
                     keyword_content.append('no content in %s' %i)
+            for i in list_keywords:
+                if not isinstance(metadata[i],list):
+                    keyword_content.append('ERROR!%s should be list' %i)
+                if metadata[i] == []:
+                    keyword_content.append('no content in %s' %i)
             for i in url_keywords:
                 if not metadata[i].startswith('http'):
                     keyword_content.append('%s keywords should startwith http' %i)
@@ -399,10 +410,12 @@ class Inspector(IOMethod, VariableControl):
                 keyword_content.append('libraryPreparationMethod:%s should be in the keywords list' %metadata['libraryPreparationMethod'])   
             if not metadata['journal'] in self.journal_keywords:
                 keyword_content.append('journal:%s should be in the keywords list' %metadata['journal'])
-            if not metadata['tissue'] in self.tissue_keywords:
-                keyword_content.append('tissue:%s should be in the keywords list' %metadata['tissue'])
             if not isinstance(metadata['sequencingPlatform'],str):
                 keyword_content.append('sequencingPlatform should be str')
+            if set(metadata['tissue']) != {'notAvailable'}:
+                if not set(metadata['tissue']) < set(self.tissue_keywords):
+                    keyword_content.append('tissue:%s should be in the keywords list' %metadata['tissue'])
+
         except Exception as e:
             keyword_content.append(e)
 
@@ -420,13 +433,28 @@ class Inspector(IOMethod, VariableControl):
         df_cell = self.read_template_tsv('cellAnnotation.tsv')
         if marker_genes == {}:
             marker_genes_result['marker_gene_contents'] = 'no markers genes!'
-        else:
+        else:          
+            
+            # 1.7.2020 check length of markerGenes
+            for k in list(marker_genes.keys()):
+                a = len(marker_genes[k]['geneSymbol'])
+                b = len(marker_genes[k]['ensemblID'])
+                c= len(marker_genes[k]['pValue'])
+                d=len(marker_genes[k]['statistics'])
+                e=len(marker_genes[k]['statisticsType'])
+                if a == b == c == d == e:
+                    continue
+                else:
+                    marker_genes_result['marker_gene_length'] = 'ERROR!length not match!'
+                    break
+            
             standard_keys = []
             cell_types = [*marker_genes]
             mismatched_Names = None
             if set(df_cell['clusterName']) != set(cell_types):
                 marker_genes_result['marker_gene_clusterName'] = 'ERROR!not matched with cellAnnotation!'
-
+                
+                
             for cell_type in cell_types:
                 markers = marker_genes[cell_type]
                 current_keys = [*markers]
@@ -441,6 +469,8 @@ class Inspector(IOMethod, VariableControl):
                                                 %(cell_type, key))
                     except Exception as e:
                         empty_marker_genes_error.append(e)
+
+                    
             if empty_marker_genes_error != []:
                 marker_genes_result['marker_genes_format'] = empty_marker_genes_error
 

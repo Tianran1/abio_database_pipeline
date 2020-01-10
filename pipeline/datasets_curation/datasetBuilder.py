@@ -222,7 +222,8 @@ class BaseDatasetBuilder(IOMethod):
                         'title': '',
                         'authors':'',
                         'accessionNumber': '',  # GSE11111
-                        'pubmedID': 0,  # 123456
+                        'pubmedID': 0,  # 123456,
+                        'keywords':[],
                         'abstract': '',  # 
                         'sourceID': '',  # 'https://doi.org/10.1016/j.celrep.2018.11.056',
                         'numberOfCells': 0,  # 300,
@@ -240,7 +241,8 @@ class BaseDatasetBuilder(IOMethod):
                         'journal': '',
                         'publicationDate':'',
                         'citation': 0,
-                        'tissue':'',
+                        'tissue':[''],
+                        'tissueOntology':[''],
                         'clusterAvailability':'',
                         'disease':'',
                         'methodology':'',
@@ -250,6 +252,7 @@ class BaseDatasetBuilder(IOMethod):
                         'developmentalBiology':'',
                         'immunology':'',
                         'cellAtlas':'',
+                        'tSNEAvailability':'',
                         'isBadtSNE':''
                     },
                     'markerGenes': {
@@ -333,6 +336,7 @@ class DerivationMethod(IOMethod):
         Returns: 
             journal: str() "Nature"
             publication_date: str() "2019-10-08"
+            keywords:list
             authors: [
                 {'lastname': 'Ryskov',
                 'firstname': 'A P',
@@ -347,6 +351,7 @@ class DerivationMethod(IOMethod):
         articles = pubmed.query(str(pubmed_id), max_results=1)
         for i in articles:
             article = i
+        keywords = article.keywords
         journal = article.journal
         if journal == "Science (New York, N.Y.)":
             journal = "Science"
@@ -356,7 +361,7 @@ class DerivationMethod(IOMethod):
         for i in range(len(authors)):
             authors[i].pop('affiliation')
 
-        return journal, publication_date, authors
+        return journal, publication_date, authors, keywords
     
     def gene_ref(self):
         
@@ -378,8 +383,9 @@ class DerivationMethod(IOMethod):
         elif species == 6239:
             df = pd.read_csv(gene_ref_dir + 'Caenorhabditis_unique_id_length.tsv', sep='\t')   
         elif species == 9823:
-            df = pd.read_csv(gene_ref_dir + 'pig_id_length.tsv', sep='\t') 
-
+            df = pd.read_csv(gene_ref_dir + 'pig_unique_id_length.tsv', sep='\t') 
+        elif species == 10116:
+            df = pd.read_csv(gene_ref_dir + 'rat_unique_id_length.tsv', sep='\t') 
         return df
 
     def toTPM(self, 
@@ -405,8 +411,8 @@ class DerivationMethod(IOMethod):
         raw = raw[:, names_index]
         
         libmethod = self.read_template_json('unstructuredData.json')['metadata']['libraryPreparationMethod']
-        libmethod_keywords = ['10x chrominum', 'drop-seq', 'microwell-seq', 'C1 Fluidigm', 'inDrops', 'Smart-seq2',
-                              'CEL-seq','Smart-seq']
+        libmethod_keywords = ['10x chromium','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
+                          'Smart-seq2','Smart-seq','CEL-seq','CEL-seq2','MARS-seq','msSCRB-seq','SCRB-seq']
         full_len_keywords = ['C1 Fluidigm', 'Smart-seq2','Smart-seq']
         if libmethod in libmethod_keywords:
             if libmethod in full_len_keywords:
@@ -514,49 +520,54 @@ class DerivationMethod(IOMethod):
             df_gene_anno['ensemblIDVersion'] = 'V90'
             df_gene_anno['geneID'] = ''
 
+        df_gene_anno = df_gene_anno.fillna('notAvailable')
         self.save_template_tsv(df_gene_anno, 'geneAnnotation.tsv')
 
-    def calculate_marker_genes(self, ensemblID = None, exp_type = 'tsv'):
+    def calculate_marker_genes(self, ensemblID = False, exp_type = 'tsv'):
         unstructured_data = self.read_template_json('unstructuredData.json')
-        df_cell_anno = self.read_template_tsv('cellAnnotation.tsv')
-        if len(df_cell_anno['clusterName'].unique().tolist()) == 1:
+        df_cell = self.read_template_tsv('cellAnnotation.tsv')
+        if len(df_cell['clusterName'].unique().tolist()) == 1:
             return 
         else:
-            df_TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
-            if df_TPM['cellID'].tolist() == []:
+            TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
+            if TPM['cellID'].tolist() == []:
                 exp_type = 'mtx'
                 TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
                 TPM = TPM.toarray()
             else:
-                TPM = df_TPM.iloc[:, 2:].to_numpy()
-            count = pd.value_counts(df_cell_anno['clusterName'])
+                TPM = TPM.iloc[:, 2:].to_numpy()
+            df_gene = self.read_template_tsv('geneAnnotation.tsv')
+            # remove cluster with only one cell and notAvailable clusters or geneSymbols
+            count = pd.value_counts(df_cell['clusterName'])
             try:
-                # remove cluster with only one cell             
                 t = count.index[count == 1].tolist()
                 y1 = []
                 for i in t:
-                    y1.append(df_cell_anno.index[df_cell_anno['clusterName'] == i].tolist()[0])
+                    y1.append(df_cell.index[df_cell['clusterName'] == i].tolist()[0])
+                    
                 TPM = np.delete(TPM, y1, axis=0)
-                df_cell_anno = df_cell_anno.drop(y1, axis=0)
-                df_cell_anno = df_cell_anno.reset_index(drop=True)
+                df_cell = df_cell.drop(y1, axis=0)
+                df_cell = df_cell.reset_index(drop=True)
             except:
                 pass
-
-            # remove notAvailable
-            y2 = df_cell_anno.index[df_cell_anno['clusterName'] == 'notAvailable']
+            y2 = df_cell.index[df_cell['clusterName'] == 'notAvailable'].tolist()
             TPM = np.delete(TPM, y2, axis=0)
-            df_cell_anno = df_cell_anno.drop(y2, axis=0)
+            df_cell = df_cell.drop(y2, axis=0)
+            
+            df_gene = df_gene.fillna('notAvailable')
+            y3 = df_gene.index[df_gene['geneSymbol'] == 'notAvailable'].tolist()
+            TPM = np.delete(TPM, y3, axis=1)
+            genes = df_gene.drop(y3,axis=0)['geneSymbol'].to_numpy()
+            cell_types = df_cell['clusterName'].astype(str).to_numpy()
 
-            clusterNames = df_cell_anno['clusterName'].astype(str).to_numpy()
             ann1 = an.AnnData(np.log1p(TPM))
-            ann1.obs['cluster'] = clusterNames
+            ann1.var_names = genes
+            ann1.obs['cluster'] = cell_types
             sc.tl.rank_genes_groups(ann1, 'cluster', method='wilcoxon')
 
             markerGenes = dict()
-            if TPM.columns.tolist()[round(TPM.shape[1]/2)].startswith('ENS', 0):
-                ensemblID = True
             if ensemblID: 
-                for x in set(clusterNames):
+                for x in set(cell_types):
                     markerGenes[x] = {
                         'geneSymbol': self.calculate_geneSymbol(ann1.uns['rank_genes_groups']['names'][x].tolist()),
                         'ensemblID': ann1.uns['rank_genes_groups']['names'][x].tolist(),
@@ -564,7 +575,7 @@ class DerivationMethod(IOMethod):
                         'statistics': ann1.uns['rank_genes_groups']['scores'][x].tolist(),
                         'statisticsType': ['wilcoxon'] * 100}
             else:
-                for x in set(clusterNames):
+                for x in set(cell_types):
                     markerGenes[x] = {
                         'geneSymbol': ann1.uns['rank_genes_groups']['names'][x].tolist(),
                         'ensemblID': self.calculate_ensemblID(ann1.uns['rank_genes_groups']['names'][x].tolist()),
@@ -864,7 +875,7 @@ class DerivationMethod(IOMethod):
             df_cell = df_cell.drop(y2, axis=0)
             
             df_gene = df_gene.fillna('notAvailable')
-            y3 = df_gene.index[df_gene['geneSymbol'] == 'notAvailable'].tolist()
+            y3 = df_gene.index[np.logical_or(df_gene['geneSymbol'] == 'notAvailable',df_gene['geneSymbol'] == 'Analytical_Biosciences')].tolist()
             TPM = np.delete(TPM, y3, axis=1)
             genes = df_gene.drop(y3,axis=0)['geneSymbol'].to_numpy()
             cell_types = df_cell['clusterName'].astype(str).to_numpy()

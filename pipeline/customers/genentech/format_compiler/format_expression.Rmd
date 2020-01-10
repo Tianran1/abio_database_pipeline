@@ -1,7 +1,6 @@
 ```{r}
 library(Matrix)
 library(readr)
-
 transform = function(data_name=NULL, part=NULL){
     if(!data_name %in% list.files(output_path)){
       dir.create(paste(output_path, data_name, sep=''))
@@ -69,7 +68,7 @@ transform = function(data_name=NULL, part=NULL){
 input_path = '/home/biodb/data/dataset_collection/datasets/3_standard_dataset/'
 output_path = '/home/biodb/data/dataset_collection/datasets/genentech_format_copy/'
 
-transform(data_name = 'No_43', part = 'part_1')
+transform(data_name = 'No_18', part = 'part_2')
 ```
 
 ```{r}
