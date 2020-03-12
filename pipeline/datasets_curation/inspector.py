@@ -27,7 +27,7 @@ class VariableControl():
     'abstract','authors', 'journal', 'sourceID', 'numberOfCells','libraryPreparationMethod', 
     'sequencingPlatform', 'pubmedID', 'keywords', 'clusteringMethod', 'biomarkerDerivationMethod', 'fastqURL', 
     'figureURL', 'taxonomyID','genomeBuild','annotation','publicationDate','citation','tissue','tissueOntology',
-    'clusterAvailability','disease','methodology','nonAdult','cancer','neuroscience','developmentalBiology',
+    'clusterAvailability','disease','methodology','cancer','neuroscience','developmentalBiology',
     'immunology','cellAtlas','isFigurePublic','tSNEAvailability','isBadtSNE']
     libmethod_keywords = ['10x chromium','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
                           'Smart-seq2','Smart-seq','CEL-seq','CEL-seq2','MARS-seq','msSCRB-seq','SCRB-seq']
@@ -129,6 +129,11 @@ class Inspector(IOMethod, VariableControl):
         
         # inspect mismatched keywords
         mismatched_keywords = self._compare_name_sequences(df_cell.columns.tolist(), self.standard_cellanno_variables)
+        try:
+            mismatched_keywords = mismatched_keywords - set(['clusteringMethod'])
+            mismatched_keywords = mismatched_keywords - set(['clusterName_scibet'])
+        except:
+            pass
         if mismatched_keywords != None:
             cell_meta_keywords = set()
             for i in mismatched_keywords:
@@ -167,9 +172,12 @@ class Inspector(IOMethod, VariableControl):
         cluster_result = set()
         name = [i for i in df_cell['clusterName'] if i != 'notAvailable']
         ID = [i for i in df_cell['clusterID'] if i != 'notAvailable']
-        name
+        if 'clusteringMethod' in df_cell.columns.tolist():
+            cluster_result.add('cluster derived from the pipeline')
+        if len(set(name)) == 0:
+            cluster_result.add('ERROR!no clusterName')    
         if len(set(name)) == 1:
-            cluster_result.add('Only one cluster: %s!' %name[0])
+            cluster_result.add('ERROR!Only one cluster: %s!' %name[0])
         if len(set(ID)) != len(set(name)):
             cluster_result.add("ERROR!clusterID not matched with clusterName")
         for i in set(df_cell['clusterName']):
@@ -368,7 +376,8 @@ class Inspector(IOMethod, VariableControl):
         unstructured_data_result = dict()
         
         unstructured_data = self.read_template_json('unstructuredData.json')
-            
+        df_cell = self.read_template_tsv('cellAnnotation.tsv')
+        
         #============================== 
         # inspect metadata
         #==============================
@@ -415,6 +424,12 @@ class Inspector(IOMethod, VariableControl):
             if set(metadata['tissue']) != {'notAvailable'}:
                 if not set(metadata['tissue']) < set(self.tissue_keywords):
                     keyword_content.append('tissue:%s should be in the keywords list' %metadata['tissue'])
+            if metadata['numberOfCells'] != df_cell.shape[0]:
+                keyword_content.append('ERROR of numberOfCells')
+            if metadata['cancer'] == 'True':
+                if metadata['disease'] == 'False':
+                    keyword_content.append('ERROR of disease')
+
 
         except Exception as e:
             keyword_content.append(e)
@@ -430,7 +445,6 @@ class Inspector(IOMethod, VariableControl):
         marker_genes = unstructured_data['markerGenes']
         marker_genes_result = dict()
 
-        df_cell = self.read_template_tsv('cellAnnotation.tsv')
         if marker_genes == {}:
             marker_genes_result['marker_gene_contents'] = 'no markers genes!'
         else:          

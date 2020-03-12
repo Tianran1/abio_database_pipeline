@@ -15,8 +15,11 @@ import xml.dom.minidom
 from scipy import sparse, io
 import seaborn as sns
 import sys
+import louvain
+import umap
 
-gene_ref_dir = os.path.realpath(sys.modules['pipeline'].__file__).split('__')[0] + 'resources/gene_references/'
+ref_dir = os.path.realpath(sys.modules['pipeline'].__file__).split('__')[0] + 'resources/'
+gene_ref_dir = ref_dir + 'gene_references/'
 
 class IOMethod(object):
 
@@ -246,7 +249,6 @@ class BaseDatasetBuilder(IOMethod):
                         'clusterAvailability':'',
                         'disease':'',
                         'methodology':'',
-                        'nonAdult':'',
                         'cancer':'',
                         'neuroscience':'',
                         'developmentalBiology':'',
@@ -326,6 +328,339 @@ class BaseDatasetBuilder(IOMethod):
         return return_message
 
     # should consider, pd.read_csv(index_col=0)
+
+class ScibetClassifier:
+    
+    def __init__(self):
+        self.reference_core = None
+        self.reference_genes = None
+        self.reference_cell_types = None
+        
+    def calculate_core(self, TPM, genes, cell_types):
+        """
+        Parameters:
+        ----------
+            TPM: np.array()
+            genes: np.array()
+            cell_types: np.array()
+            
+        Returns:
+        ----------
+            reference_core: np.array()
+                log1p transformed probability
+            reference_genes: np.array()
+                selected genes, now 2000
+            reference_cell_types: np.array()
+                labels
+        """
+        # use pd.Dataframe for easier calculations
+        df_TPM = pd.DataFrame(TPM)
+        df_TPM.index = cell_types
+        df_TPM.columns = genes
+        
+        # averaging
+        df_TPM_averaged = df_TPM.groupby(by=df_TPM.index).mean()
+        self.df_TPM_averaged = df_TPM_averaged
+        
+        # gene filtering
+        selected_genes = []
+        for gene in df_TPM_averaged.columns:
+            if gene.startswith('m') or gene.startswith('RP'):
+                select_gene = False
+            else:
+                select_gene = True
+            selected_genes.append(select_gene)
+        
+        df_TPM_filtered_mt_rp = df_TPM_averaged.loc[:, selected_genes]
+        df_TPM_filtered = df_TPM_filtered_mt_rp.loc[:, df_TPM_filtered_mt_rp.mean(0) < 2000]
+        informative_genes, informative_t_scores, informative_TPM, _ =             select_informative_genes(df_TPM_filtered.to_numpy(), df_TPM_filtered.columns.to_numpy(), number_of_genes=2000)
+        df_TPM_informative_genes = pd.DataFrame(informative_TPM, columns=informative_genes, index=df_TPM_filtered.index)
+        self.df_TPM_informative_genes = df_TPM_informative_genes
+        df_TPM_informative_genes += 1
+
+        # calculate probability and log transform
+        df_prob = df_TPM_informative_genes.divide(df_TPM_informative_genes.sum(1), axis=0)
+        df_prob_log = np.log1p(df_prob)
+        
+        self.reference_core = df_prob_log.to_numpy()
+        self.reference_genes = df_prob_log.columns.to_numpy()
+        self.reference_cell_types = df_prob_log.index.to_numpy()
+
+        return self.reference_core, self.reference_genes, self.reference_cell_types
+    
+    def predict_cell_type(self, test_TPM, test_genes):
+        """
+        Parameters:
+        -----------
+            test_TPM: np.array()
+            test_genes: np.array()
+        Returns:
+        -----------
+            preddicted_cell_types: np.array()
+        """
+        df_test = pd.DataFrame(test_TPM, columns=test_genes)
+        df_test_selected_genes = df_test.reindex(columns=self.reference_genes, fill_value=0)
+        df_test_logged = np.log1p(df_test_selected_genes)
+        df_pred = pd.DataFrame(np.dot(df_test_logged, self.reference_core.T), columns=self.reference_cell_types)
+        predicted_cell_types = df_pred.T.idxmax(0).to_numpy()
+        self.predicted_cell_types = predicted_cell_types
+        
+        return self.predicted_cell_types
+
+    def generate_scibet_cell_types(self,
+        TPM : np.ndarray = None,
+        genes: list = None,
+        taxonomy_id: int = None):
+        df_reference = pd.read_csv(ref_dir + 'GSE11111_scibet_core.csv', index_col=0)
+        reference_core = df_reference.to_numpy()
+        mouse_reference_genes = df_reference.columns.tolist()
+        reference_cell_types = df_reference.index.tolist()
+        
+        df_gene_conversion = pd.read_csv(ref_dir + 'homomuris.csv')
+        mouse_to_human_dict = {df_gene_conversion['mgi'][i]:df_gene_conversion['symbol'][i] for i in range(df_gene_conversion.shape[0])}
+        human_reference_genes = []
+        for i in mouse_reference_genes:
+            try: 
+                human_reference_genes.append(mouse_to_human_dict[i])
+            except:
+                human_reference_genes.append('notAvailable')
+        
+        self.reference_core = reference_core
+        self.reference_cell_types = reference_cell_types
+        
+        if taxonomy_id == 10090:
+            self.reference_genes = mouse_reference_genes
+            predicted_cell_types = self.predict_cell_type(TPM, genes)
+            return predicted_cell_types
+
+        elif taxonomy_id == 9606:
+            self.reference_genes = human_reference_genes
+            predicted_cell_types = self.predict_cell_type(TPM, genes)
+            return predicted_cell_types
+
+        else:
+            pass
+
+    def generate_scibet_HCL(self,
+        TPM : np.ndarray = None,
+        genes: list = None,
+        taxonomy_id: int = None):
+
+        if taxonomy_id == 9606:
+            df_reference = pd.read_csv(ref_dir + 'HCL_model.csv', index_col=0)
+            reference_core = df_reference.to_numpy()
+            reference_genes = df_reference.columns.tolist()
+            reference_cell_types = df_reference.index.tolist()
+            self.reference_core = reference_core
+            self.reference_cell_types = reference_cell_types
+            self.reference_genes = reference_genes
+            predicted_cell_types = self.predict_cell_type(TPM, genes)
+            return predicted_cell_types
+        else:
+            pass
+
+class Auto_calculation():
+    def __init__(self):
+        pass
+
+    def calculate_diff_genes(self, TPM, genes, cell_types):
+        """
+        Parameters:
+            TPM: np.array()
+            genes: list()
+            cell_types: list()
+        """
+        ann = an.AnnData(np.log1p(TPM))
+        ann.var_names = genes
+        ann.obs['cluster'] = cell_types
+        diffGenes = dict()
+        for each in ['t-test','wilcoxon']:
+            markers = dict()
+            sc.tl.rank_genes_groups(ann,'cluster',method = each,n_genes=1000,rankby_abs=True)
+            for x in set(cell_types):
+                markers[x] = {
+                    'geneSymbol': ann.uns['rank_genes_groups']['names'][x].tolist(),
+                    'logFC': ann.uns['rank_genes_groups']['logfoldchanges'][x].tolist(),
+                    'statistics': ann.uns['rank_genes_groups']['scores'][x].tolist(),
+                    'pValue': ann.uns['rank_genes_groups']['pvals'][x].tolist(),
+                    'qValue': ann.uns['rank_genes_groups']['pvals_adj'][x].tolist()}
+            diffGenes[each] = markers
+        
+        return diffGenes
+
+    def select_informative_genes(self,
+        TPM : Optional[Union[np.ndarray]] = None,
+        genes : Optional[Union[np.ndarray]] = None,
+        number_of_genes : Optional[int] = 0,
+        labels : Optional[list] = []):
+
+        """
+        Returns:
+        informative_genes: np.array()
+        informative_t_scores: np.array()
+        informative_TPM: np.array()
+        p_values: np.array()
+        """
+
+        # unsupervised gene selection
+        if len(labels) == 0:
+            labeled_TPM = TPM
+
+        # supervised gene selection
+        elif len(labels) != 0:
+
+            groups = set(labels)
+            group_TPMs = []
+
+            for group in groups:
+                group_indexes = [index for index, x in enumerate(labels) if x == group]
+                group_TPM = TPM[group_indexes, :]
+                group_TPM = np.mean(group_TPM, axis=0)
+                group_TPMs.append(group_TPM)
+
+            labeled_TPM = np.vstack(group_TPMs)
+            # print('\n\n\n\n\n\n', labeled_TPM.shape, '\n\n\n\n')
+
+        # calculate t_scores    
+        TPM_1 = labeled_TPM + 1    
+        log_E = np.log2(np.mean(TPM_1, axis=0))
+        E_log = np.mean(np.log2(TPM_1), axis=0)
+        t_scores = log_E - E_log
+
+        # return values
+        descending_indexes = t_scores.argsort()[::-1][:number_of_genes]
+        informative_genes = genes[descending_indexes]
+        informative_t_scores = t_scores[descending_indexes]
+        informative_t_scores = np.around(informative_t_scores, decimals=1)
+
+        informative_genes_indexes = []
+        for i in informative_genes.tolist():
+            informative_genes_indexes.append(genes.tolist().index(i))
+        informative_TPM = TPM[:, informative_genes_indexes]
+
+        p_vals = []
+        if len(labels) != 0:
+            label_sets = set(labels)
+            for i in range(number_of_genes):
+                expression_vector = informative_TPM[:,i]
+                grouped_expressions = []
+                for label in label_sets:
+                    grouped_expression = [expression_vector[i] for i in range(len(expression_vector)) if labels[i]==label]
+                    grouped_expressions.append(grouped_expression)
+                p_vals.append(scipy.stats.f_oneway(*grouped_expressions)[1])
+
+        p_vals = np.array(p_vals)
+    
+        return informative_genes, informative_t_scores, informative_TPM, p_vals
+    
+    def calculate_scibet(self, TPM, genes, cell_types):
+        """
+        Parameters:
+            TPM: np.array()
+            genes: list()
+            cell_types: list()
+        """
+        # use pd.Dataframe for easier calculations
+        df_TPM = pd.DataFrame(TPM)
+        df_TPM.index = cell_types
+        df_TPM.columns = genes
+
+        # averaging
+        df_TPM_averaged = df_TPM.groupby(by=df_TPM.index).mean()
+
+        # gene filtering
+        selected_genes = []
+        for gene in df_TPM_averaged.columns:
+            if gene.startswith('m') or gene.startswith('RP'):
+                select_gene = False
+            else:
+                select_gene = True
+            selected_genes.append(select_gene)
+
+        df_TPM_filtered_mt_rp = df_TPM_averaged.loc[:, selected_genes]
+        df_TPM_filtered = df_TPM_filtered_mt_rp.loc[:, df_TPM_filtered_mt_rp.mean(0) < 2000]
+        informative_genes, informative_t_scores, informative_TPM, _ = self.select_informative_genes(
+            TPM = df_TPM_filtered.to_numpy(), genes = df_TPM_filtered.columns.to_numpy(), number_of_genes=2000)
+        df_TPM_informative_genes = pd.DataFrame(informative_TPM, columns=informative_genes, index=df_TPM_filtered.index)
+
+        df_TPM_informative_genes += 1
+
+        # calculate probability and log transform
+        df_prob = df_TPM_informative_genes.divide(df_TPM_informative_genes.sum(1), axis=0)       
+        df_prob_log = np.log1p(df_prob)
+
+        reference_core = df_prob_log.to_numpy()
+        reference_genes = df_prob_log.columns.to_numpy()
+        reference_cell_types = df_prob_log.index.to_numpy()
+        
+        scibet = pd.DataFrame(reference_core)
+        scibet.columns = reference_genes
+        scibet.index = reference_cell_types
+        
+        return scibet
+
+    def calculate_paga(self, TPM, genes, cell_types):
+
+        df_genes = genes
+        informative_genes, informative_t_scores, informative_TPM, p_vals = self.select_informative_genes(TPM,genes,2000)
+        df_paga = pd.DataFrame(informative_TPM,cell_types,informative_genes)
+        adata = an.AnnData(df_paga.to_numpy(), obs={"cell_types": df_paga.index}, var={"genes": df_paga.columns})
+        n = 50
+        sc.tl.pca(adata, svd_solver='arpack', n_comps=n)
+        sc.pp.neighbors(adata, n_neighbors=4, n_pcs=20)
+        sc.tl.diffmap(adata)
+        sc.pp.neighbors(adata, n_neighbors=5, use_rep='X_diffmap')
+
+        my_annotations = []
+        cell_types_list = adata.obs['cell_types'].tolist()
+        for i in range(0, len(cell_types_list)):
+            my_annotations.append(cell_types_list[i])
+
+        adata.obs["my_annotations"] = my_annotations
+        adata.obs['my_annotations'] = adata.obs['my_annotations'].astype('category')
+
+        sc.tl.paga(adata, groups='my_annotations')
+        paga_info = adata.uns['paga']
+        paga_nodes = adata.obs["my_annotations"].cat.categories.tolist()
+
+        paga_connectivities = paga_info["connectivities"].toarray()
+        my_connectivities = paga_connectivities
+        unique = []
+        for i in range(0, my_connectivities.shape[0]):
+            for j in range(0, my_connectivities.shape[1]):
+                if my_connectivities[i][j] != 0:
+                    if my_connectivities[i][j] not in unique:
+                        unique.append(my_connectivities[i][j])
+                    else:
+                        my_connectivities[i][j] = 0
+
+
+        node_name = [node for node in paga_nodes]
+        counts = Counter(my_annotations)
+        node_size = [counts[node] for node in paga_nodes]
+
+        #my_connectivities = np.around(my_connectivities, 3).tolist()
+
+        connectivities = []
+        for each in range(len(my_connectivities)):
+            for num in range(len(my_connectivities[each])):
+                if my_connectivities[each][num] != 0:
+                    connectivities.append([each,num,my_connectivities[each][num]])
+
+        paga_json = dict()
+        paga_json['node_name'] = node_name
+        paga_json['node_size'] = node_size
+        paga_json['connectivities'] = connectivities
+        
+        return paga_json
+    
+    def calculate_scibetHCL(self, TPM, genes, taxonomy_id):
+        """
+        TPM: np.array()
+        genes: np.array()
+        """
+        my_classifier = ScibetClassifier()
+        return my_classifier.generate_scibet_HCL(TPM, genes, taxonomy_id)
 
 class DerivationMethod(IOMethod):
 
@@ -522,71 +857,9 @@ class DerivationMethod(IOMethod):
 
         df_gene_anno = df_gene_anno.fillna('notAvailable')
         self.save_template_tsv(df_gene_anno, 'geneAnnotation.tsv')
-
-    def calculate_marker_genes(self, ensemblID = False, exp_type = 'tsv'):
-        unstructured_data = self.read_template_json('unstructuredData.json')
-        df_cell = self.read_template_tsv('cellAnnotation.tsv')
-        if len(df_cell['clusterName'].unique().tolist()) == 1:
-            return 
-        else:
-            TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
-            if TPM['cellID'].tolist() == []:
-                exp_type = 'mtx'
-                TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
-                TPM = TPM.toarray()
-            else:
-                TPM = TPM.iloc[:, 2:].to_numpy()
-            df_gene = self.read_template_tsv('geneAnnotation.tsv')
-            # remove cluster with only one cell and notAvailable clusters or geneSymbols
-            count = pd.value_counts(df_cell['clusterName'])
-            try:
-                t = count.index[count == 1].tolist()
-                y1 = []
-                for i in t:
-                    y1.append(df_cell.index[df_cell['clusterName'] == i].tolist()[0])
-                    
-                TPM = np.delete(TPM, y1, axis=0)
-                df_cell = df_cell.drop(y1, axis=0)
-                df_cell = df_cell.reset_index(drop=True)
-            except:
-                pass
-            y2 = df_cell.index[df_cell['clusterName'] == 'notAvailable'].tolist()
-            TPM = np.delete(TPM, y2, axis=0)
-            df_cell = df_cell.drop(y2, axis=0)
-            
-            df_gene = df_gene.fillna('notAvailable')
-            y3 = df_gene.index[df_gene['geneSymbol'] == 'notAvailable'].tolist()
-            TPM = np.delete(TPM, y3, axis=1)
-            genes = df_gene.drop(y3,axis=0)['geneSymbol'].to_numpy()
-            cell_types = df_cell['clusterName'].astype(str).to_numpy()
-
-            ann1 = an.AnnData(np.log1p(TPM))
-            ann1.var_names = genes
-            ann1.obs['cluster'] = cell_types
-            sc.tl.rank_genes_groups(ann1, 'cluster', method='wilcoxon')
-
-            markerGenes = dict()
-            if ensemblID: 
-                for x in set(cell_types):
-                    markerGenes[x] = {
-                        'geneSymbol': self.calculate_geneSymbol(ann1.uns['rank_genes_groups']['names'][x].tolist()),
-                        'ensemblID': ann1.uns['rank_genes_groups']['names'][x].tolist(),
-                        'pValue': ann1.uns['rank_genes_groups']['pvals'][x].tolist(),
-                        'statistics': ann1.uns['rank_genes_groups']['scores'][x].tolist(),
-                        'statisticsType': ['wilcoxon'] * 100}
-            else:
-                for x in set(cell_types):
-                    markerGenes[x] = {
-                        'geneSymbol': ann1.uns['rank_genes_groups']['names'][x].tolist(),
-                        'ensemblID': self.calculate_ensemblID(ann1.uns['rank_genes_groups']['names'][x].tolist()),
-                        'pValue': ann1.uns['rank_genes_groups']['pvals'][x].tolist(),
-                        'statistics': ann1.uns['rank_genes_groups']['scores'][x].tolist(),
-                        'statisticsType': ['wilcoxon'] * 100}
-
-            unstructured_data['markerGenes'] = markerGenes
-            self.save_template_json(unstructured_data, 'unstructuredData.json')
         
     def calculate_dim_red(self, tSNE=False, UMAP=False, fast = False):
+        
         self.results = dict()
         df_TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
         if df_TPM['cellID'].tolist() == []:
@@ -614,7 +887,6 @@ class DerivationMethod(IOMethod):
         print('feature selection and PCA compression finished ')
 
         if UMAP:
-            import umap
             reducer = umap.UMAP()
             X_embedded = reducer.fit_transform(X_pca)
             df_cell_anno['UMAP1'] = X_embedded[:, 0].tolist()
@@ -658,205 +930,35 @@ class DerivationMethod(IOMethod):
         some functions applied directly to the data automatically: markerGenes, scibet, paga
         using TPM,cellAnno and geneAnno data
         """ 
-        def calculate_diff_genes():
-            ann = an.AnnData(np.log1p(TPM))
-            ann.var_names = genes
-            ann.obs['cluster'] = cell_types
-
-            diffGenes = dict()
-            for each in ['t-test','wilcoxon']:
-                markers = dict()
-                sc.tl.rank_genes_groups(ann,'cluster',method = each,n_genes=1000,rankby_abs=True)
-                for x in set(cell_types):
-                    markers[x] = {
-                        'geneSymbol': ann.uns['rank_genes_groups']['names'][x].tolist(),
-                        'logFC': ann.uns['rank_genes_groups']['logfoldchanges'][x].tolist(),
-                        'statistics': ann.uns['rank_genes_groups']['scores'][x].tolist(),
-                        'pValue': ann.uns['rank_genes_groups']['pvals'][x].tolist(),
-                        'qValue': ann.uns['rank_genes_groups']['pvals_adj'][x].tolist()}
-                diffGenes[each] = markers
-
-            self.save_template_json(diffGenes, 'Diff_genes.json')
-
-        def select_informative_genes(
-            TPM : Optional[Union[np.ndarray]] = None,
-            genes : Optional[Union[np.ndarray]] = None,
-            number_of_genes : Optional[int] = 0,
-            labels : Optional[list] = []):
-
-            """
-            Returns:
-            informative_genes: np.array()
-            informative_t_scores: np.array()
-            informative_TPM: np.array()
-            p_values: np.array()
-            """
-
-            # unsupervised gene selection
-            if len(labels) == 0:
-                labeled_TPM = TPM
-
-            # supervised gene selection
-            elif len(labels) != 0:
-
-                groups = set(labels)
-                group_TPMs = []
-
-                for group in groups:
-                    group_indexes = [index for index, x in enumerate(labels) if x == group]
-                    group_TPM = TPM[group_indexes, :]
-                    group_TPM = np.mean(group_TPM, axis=0)
-                    group_TPMs.append(group_TPM)
-
-                labeled_TPM = np.vstack(group_TPMs)
-                # print('\n\n\n\n\n\n', labeled_TPM.shape, '\n\n\n\n')
-
-            # calculate t_scores    
-            TPM_1 = labeled_TPM + 1    
-            log_E = np.log2(np.mean(TPM_1, axis=0))
-            E_log = np.mean(np.log2(TPM_1), axis=0)
-            t_scores = log_E - E_log
-
-            # return values
-            descending_indexes = t_scores.argsort()[::-1][:number_of_genes]
-            informative_genes = genes[descending_indexes]
-            informative_t_scores = t_scores[descending_indexes]
-            informative_t_scores = np.around(informative_t_scores, decimals=1)
-
-            informative_genes_indexes = []
-            for i in informative_genes.tolist():
-                informative_genes_indexes.append(genes.tolist().index(i))
-            informative_TPM = TPM[:, informative_genes_indexes]
-
-            p_vals = []
-            if len(labels) != 0:
-                label_sets = set(labels)
-                for i in range(number_of_genes):
-                    expression_vector = informative_TPM[:,i]
-                    grouped_expressions = []
-                    for label in label_sets:
-                        grouped_expression = [expression_vector[i] for i in range(len(expression_vector)) if labels[i]==label]
-                        grouped_expressions.append(grouped_expression)
-                    p_vals.append(scipy.stats.f_oneway(*grouped_expressions)[1])
-
-            p_vals = np.array(p_vals)
         
-            return informative_genes, informative_t_scores, informative_TPM, p_vals
-        
-        def calculate_scibet():
-             # use pd.Dataframe for easier calculations
-            df_TPM = pd.DataFrame(TPM)
-            df_TPM.index = cell_types
-            df_TPM.columns = genes
-
-            # averaging
-            df_TPM_averaged = df_TPM.groupby(by=df_TPM.index).mean()
-
-            # gene filtering
-            selected_genes = []
-            for gene in df_TPM_averaged.columns:
-                if gene.startswith('m') or gene.startswith('RP'):
-                    select_gene = False
-                else:
-                    select_gene = True
-                selected_genes.append(select_gene)
-
-            df_TPM_filtered_mt_rp = df_TPM_averaged.loc[:, selected_genes]
-            df_TPM_filtered = df_TPM_filtered_mt_rp.loc[:, df_TPM_filtered_mt_rp.mean(0) < 2000]
-            informative_genes, informative_t_scores, informative_TPM, _ = select_informative_genes(
-                TPM = df_TPM_filtered.to_numpy(), genes = df_TPM_filtered.columns.to_numpy(), number_of_genes=2000)
-            df_TPM_informative_genes = pd.DataFrame(informative_TPM, columns=informative_genes, index=df_TPM_filtered.index)
-
-            df_TPM_informative_genes += 1
-
-            # calculate probability and log transform
-            df_prob = df_TPM_informative_genes.divide(df_TPM_informative_genes.sum(1), axis=0)       
-            df_prob_log = np.log1p(df_prob)
-
-            reference_core = df_prob_log.to_numpy()
-            reference_genes = df_prob_log.columns.to_numpy()
-            reference_cell_types = df_prob_log.index.to_numpy()
-            
-            scibet = pd.DataFrame(reference_core)
-            scibet.columns = reference_genes
-            scibet.index = reference_cell_types
-            
-            scibet.to_csv(self.process_dir + '/scibet.tsv',sep = '\t')
-        
-        
-        def calculate_paga():
-
-            df_genes = genes.tolist()
-            informative_genes, informative_t_scores, informative_TPM, p_vals = select_informative_genes(TPM,genes,2000)
-            df_paga = pd.DataFrame(informative_TPM,cell_types,informative_genes)
-            adata = an.AnnData(df_paga.to_numpy(), obs={"cell_types": df_paga.index}, var={"genes": df_paga.columns})
-            
-            if df_cell.shape[0] < 50:
-                n = df_cell.shape[0]-1
-            else:
-                n = 50
-            sc.tl.pca(adata, svd_solver='arpack', n_comps=n)
-            sc.pp.neighbors(adata, n_neighbors=4, n_pcs=20)
-            sc.tl.diffmap(adata)
-            sc.pp.neighbors(adata, n_neighbors=5, use_rep='X_diffmap')
-
-            my_annotations = []
-            cell_types_list = adata.obs['cell_types'].tolist()
-            for i in range(0, len(cell_types_list)):
-                my_annotations.append(cell_types_list[i])
-
-            adata.obs["my_annotations"] = my_annotations
-            adata.obs['my_annotations'] = adata.obs['my_annotations'].astype('category')
-
-            sc.tl.paga(adata, groups='my_annotations')
-            paga_info = adata.uns['paga']
-            paga_nodes = adata.obs["my_annotations"].cat.categories.tolist()
-
-            paga_connectivities = paga_info["connectivities"].toarray()
-            my_connectivities = paga_connectivities
-            unique = []
-            for i in range(0, my_connectivities.shape[0]):
-                for j in range(0, my_connectivities.shape[1]):
-                    if my_connectivities[i][j] != 0:
-                        if my_connectivities[i][j] not in unique:
-                            unique.append(my_connectivities[i][j])
-                        else:
-                            my_connectivities[i][j] = 0
-
-
-            node_name = [node for node in paga_nodes]
-            counts = Counter(my_annotations)
-            node_size = [counts[node] for node in paga_nodes]
-
-            #my_connectivities = np.around(my_connectivities, 3).tolist()
-
-            connectivities = []
-            for each in range(len(my_connectivities)):
-                for num in range(len(my_connectivities[each])):
-                    if my_connectivities[each][num] != 0:
-                        connectivities.append([each,num,my_connectivities[each][num]])
-
-            paga_json = dict()
-            paga_json['node_name'] = node_name
-            paga_json['node_size'] = node_size
-            paga_json['connectivities'] = connectivities
-            
-            self.save_template_json(json_dict=paga_json, json_name='paga.json')
-         
-            
+        my_calculation = Auto_calculation()
+        taxonomy_id = self.read_template_json('unstructuredData.json')['metadata']['taxonomyID']
         df_cell = self.read_template_tsv('cellAnnotation.tsv')
+
         if len(df_cell['clusterName'].unique().tolist()) == 1:
-            return
+            message = 'clusterName ERROR!'
+            return message
         else:
             
             TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
+            df_gene = self.read_template_tsv('geneAnnotation.tsv')
+            y = df_gene.index[np.logical_or(df_gene['geneSymbol'] == 'notAvailable',df_gene['geneSymbol'] == 'Analytical_Biosciences')].tolist()
+            df_gene = df_gene.drop(y,axis=0)
+            genes = df_gene['geneSymbol'].to_list()
+        
             if TPM['cellID'].tolist() == []:
                 exp_type = 'mtx'
                 TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
                 TPM = TPM.toarray()
             else:
                 TPM = TPM.iloc[:, 2:].to_numpy()
-            df_gene = self.read_template_tsv('geneAnnotation.tsv')
+            TPM = np.delete(TPM, y, axis=1)
+
+            # calculate scibet HCL
+            if taxonomy_id == 9606:
+                df_cell['meta_scibetHCL'] = my_calculation.calculate_scibetHCL(TPM, genes, taxonomy_id)
+                self.save_template_tsv(df_cell,'cellAnnotation.tsv')
+
             # remove cluster with only one cell and notAvailable clusters or geneSymbols
             count = pd.value_counts(df_cell['clusterName'])
             try:
@@ -875,22 +977,74 @@ class DerivationMethod(IOMethod):
             df_cell = df_cell.drop(y2, axis=0)
             
             df_gene = df_gene.fillna('notAvailable')
-            y3 = df_gene.index[np.logical_or(df_gene['geneSymbol'] == 'notAvailable',df_gene['geneSymbol'] == 'Analytical_Biosciences')].tolist()
-            TPM = np.delete(TPM, y3, axis=1)
-            genes = df_gene.drop(y3,axis=0)['geneSymbol'].to_numpy()
+            genes = df_gene['geneSymbol'].to_numpy()
             cell_types = df_cell['clusterName'].astype(str).to_numpy()
             
             if diff_genes:
-                calculate_diff_genes()
+                diff = my_calculation.calculate_diff_genes(TPM, genes, cell_types)
+                self.save_template_json(diff,'Diff_genes.json')
             
-            calculate_scibet()
-            calculate_paga()
+            scibet = my_calculation.calculate_scibet(TPM, genes, cell_types)
+            scibet.to_csv(self.process_dir + '/scibet.tsv',sep = '\t')
+            paga = my_calculation.calculate_paga(TPM, genes, cell_types)
+            self.save_template_json(paga,'paga.json')
     
-
     def sample_info(self, GSE=None):
         gse = GEOparse.get_GEO(GSE)
         info = gse.phenotype_data
         return (info)
+
+    def calculate_cluster(self, RUN=None):
+        
+        my_classifier = ScibetClassifier()
+        df_cell = self.read_template_tsv('cellAnnotation.tsv')
+        taxonomy_id = self.read_template_json('unstructuredData.json')['metadata']['taxonomyID']
+
+        if set(df_cell['clusterName']) == {'notAvailable'} or RUN == True:
+            df_gene = self.read_template_tsv('geneAnnotation.tsv')
+            y = df_gene.index[df_gene['geneSymbol'] == 'notAvailable'].tolist()
+            genes = df_gene.drop(y,axis=0)['geneSymbol'].to_list()
+            if os.path.exists(self.process_dir+"/expressionMatrix_TPM.mtx"):
+                if df_cell.shape[0] > 500000:
+                    print('Too many cells !')
+                else:
+                    TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
+                    TPM = TPM.todense()
+                    TPM = np.delete(TPM, y, axis=1)
+                    ann1 = an.AnnData(np.log1p(TPM))
+                    sc.pp.highly_variable_genes(ann1, n_top_genes=500)
+                    sc.pp.pca(ann1, n_comps=50, zero_center=True)
+                    sc.pp.neighbors(ann1, n_neighbors=15, n_pcs=40)
+                    sc.tl.louvain(ann1)
+                    cluster = ann1.obs['louvain'].tolist()
+                    cluster = [int(i)+1 for i in cluster]
+                    df_cell['clusterID'] = cluster
+                    df_cell['clusterName'] = ['cluster_'+str(i) for i in cluster]
+                    df_cell['clusteringMethod'] = 'louvain'
+                    if taxonomy_id == 10090 or taxonomy_id == 9606:
+                        df_cell['clusterName_scibet'] = my_classifier.generate_scibet_cell_types(TPM, genes, taxonomy_id)
+                    if taxonomy_id == 9606:
+                        df_cell['meta_scibetHCL'] = my_classifier.generate_scibet_HCL(TPM, genes, taxonomy_id)
+                    self.save_template_tsv(df_cell,'cellAnnotation.tsv')
+            else:
+                TPM = self.read_template_tsv('expressionMatrix_TPM.tsv')
+                TPM = TPM.iloc[:, 2:].to_numpy()
+                TPM = np.delete(TPM, y, axis=1)
+                ann1 = an.AnnData(np.log1p(TPM))
+                sc.pp.highly_variable_genes(ann1, n_top_genes=500)
+                sc.pp.pca(ann1, n_comps=50, zero_center=True)
+                sc.pp.neighbors(ann1, n_neighbors=15, n_pcs=40)
+                sc.tl.louvain(ann1)
+                cluster = ann1.obs['louvain'].tolist()
+                cluster = [int(i)+1 for i in cluster]
+                df_cell['clusterID'] = cluster
+                df_cell['clusterName'] = ['cluster_'+str(i) for i in cluster]
+                df_cell['clusteringMethod'] = 'louvain'
+                if taxonomy_id == 10090 or taxonomy_id == 9606:
+                        df_cell['clusterName_scibet'] = my_classifier.generate_scibet_cell_types(TPM, genes, taxonomy_id)
+                if taxonomy_id == 9606:
+                    df_cell['meta_scibetHCL'] = my_classifier.generate_scibet_HCL(TPM, genes, taxonomy_id)
+                self.save_template_tsv(df_cell,'cellAnnotation.tsv')
 
 class DatasetBuilder(BaseDatasetBuilder, DerivationMethod):
     def __init__(self, starting_dir = os.path.abspath(os.path.dirname(os.getcwd()))):
