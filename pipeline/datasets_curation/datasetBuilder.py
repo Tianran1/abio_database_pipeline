@@ -222,6 +222,7 @@ class BaseDatasetBuilder(IOMethod):
                         'datasetID': '',  # No_1
                         'subDataset': '',
                         'description': '',
+                        'correspondingFigure': '',
                         'title': '',
                         'authors':'',
                         'accessionNumber': '',  # GSE11111

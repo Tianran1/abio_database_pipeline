@@ -28,7 +28,7 @@ class VariableControl():
     'sequencingPlatform', 'pubmedID', 'keywords', 'clusteringMethod', 'biomarkerDerivationMethod', 'fastqURL', 
     'figureURL', 'taxonomyID','genomeBuild','annotation','publicationDate','citation','tissue','tissueOntology',
     'clusterAvailability','disease','methodology','cancer','neuroscience','developmentalBiology',
-    'immunology','cellAtlas','isFigurePublic','tSNEAvailability','isBadtSNE']
+    'immunology','cellAtlas','isFigurePublic','tSNEAvailability','isBadtSNE','correspondingFigure']
     libmethod_keywords = ['10x chromium','drop-seq','microwell-seq','C1 Fluidigm','inDrops',
                           'Smart-seq2','Smart-seq','CEL-seq','CEL-seq2','MARS-seq','msSCRB-seq','SCRB-seq']
     journal_keywords = ['Cancer cell','Cancer discovery','Cell','Cell stem cell',
