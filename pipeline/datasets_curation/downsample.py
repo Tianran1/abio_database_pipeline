@@ -47,6 +47,7 @@ class Downsample(IOMethod):
     def downsample(self, tpm_downsampled = False):
         cellAnnotation = self.read_template_tsv("cellAnnotation.tsv")
     
+    
         if cellAnnotation.shape[0] <= 4000:
             return_message = "no need for downsample"
             return return_message

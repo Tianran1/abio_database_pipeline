@@ -127,6 +127,10 @@ class Inspector(IOMethod, VariableControl):
         
         df_cell = self.read_template_tsv('cellAnnotation.tsv')
         
+        # inspect duplicated cellID
+        if len(df_cell['cellID']) != len(set(df_cell['cellID'])):
+            cell_annotation_result['cellID'] = "ERROR! duplicated cellID!"
+
         # inspect mismatched keywords
         mismatched_keywords = self._compare_name_sequences(df_cell.columns.tolist(), self.standard_cellanno_variables)
         try:

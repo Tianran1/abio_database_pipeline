@@ -1010,7 +1010,7 @@ class DerivationMethod(IOMethod):
                     print('Too many cells !')
                 else:
                     TPM = self.read_template_mtx('expressionMatrix_TPM.mtx')
-                    TPM = TPM.todense()
+                    TPM = TPM.toarray()
                     TPM = np.delete(TPM, y, axis=1)
                     ann1 = an.AnnData(np.log1p(TPM))
                     sc.pp.highly_variable_genes(ann1, n_top_genes=500)
